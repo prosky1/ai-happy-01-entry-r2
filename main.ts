@@ -12,6 +12,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 const MAX_BYTES = 1048576;
 const MAX_SIDE = 1024;
@@ -73,3 +74,21 @@ writeFileSync(outPath, bytes);
 // so a partial write or a wrong path fails here, not at the grader.
 const written = readFileSync(outPath);
 if (!written.equals(bytes)) fail('output bytes differ from the entry image');
+
+// Round-trip verification: re-read the written output from disk and
+// re-verify it end to end, so the file the grader sees is the file
+// that was checked — a truncated or corrupted write fails here.
+const roundTrip = readFileSync(outPath);
+if (roundTrip.length !== bytes.length) {
+  fail(`round-trip size mismatch: ${roundTrip.length} vs ${bytes.length} bytes`);
+}
+if (!roundTrip.equals(bytes)) fail('round-trip bytes differ from the entry image');
+const roundTripSize = roundTrip.subarray(0, 8).equals(PNG_MAGIC)
+  ? pngSize(roundTrip)
+  : jpegSize(roundTrip);
+if (roundTripSize.width !== size.width || roundTripSize.height !== size.height) {
+  fail(`round-trip dimensions mismatch: ${roundTripSize.width}x${roundTripSize.height}`);
+}
+const format = roundTrip.subarray(0, 8).equals(PNG_MAGIC) ? 'PNG' : 'JPEG';
+const digest = createHash('sha256').update(roundTrip).digest('hex');
+console.log(`entry ok: ${format} ${roundTripSize.width}x${roundTripSize.height} ${roundTrip.length} bytes sha256=${digest}`);
